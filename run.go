@@ -5,6 +5,11 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"github.com/CAFxX/httpcompression"
+	"github.com/CAFxX/httpcompression/contrib/andybalholm/brotli"
+	"github.com/CAFxX/httpcompression/contrib/klauspost/gzip"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/crypto/acme/autocert"
 	"log"
 	"net"
@@ -37,6 +42,8 @@ func init() {
 	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
 		panic(err)
 	}
+
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
 func (app *application) run(ctx context.Context, httpPort, httpsPort string) error {
@@ -63,8 +70,40 @@ func (app *application) run(ctx context.Context, httpPort, httpsPort string) err
 		domains = append(domains, domain)
 	}
 
-	server := &http.Server{
-		Handler: NewProxy(servers),
+	brEnc, err := brotli.New(brotli.Options{
+		Quality: 10,
+		LGWin:   0,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	gzEnc, err := gzip.New(gzip.Options{Level: 9})
+	if err != nil {
+		panic(err)
+	}
+
+	compress, err := httpcompression.Adapter(
+		httpcompression.Compressor(brotli.Encoding, 1, brEnc),
+		httpcompression.Compressor(gzip.Encoding, 0, gzEnc),
+		httpcompression.Prefer(httpcompression.PreferServer),
+		httpcompression.MinSize(100),
+		httpcompression.ContentTypes([]string{
+			"image/jpeg",
+			"image/gif",
+			"image/png",
+		}, true),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	serverH3 := http3.Server{
+		Handler: compress(NewProxy(servers)),
+	}
+
+	serverH2 := http.Server{
+		Handler: compress(NewProxy(servers)),
 	}
 
 	if app.dev {
@@ -74,9 +113,9 @@ func (app *application) run(ctx context.Context, httpPort, httpsPort string) err
 				panic(err)
 			}
 
-			err = server.Serve(ln)
+			err = serverH2.Serve(ln)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err.Error())
 			}
 		}()
 	} else {
@@ -87,21 +126,37 @@ func (app *application) run(ctx context.Context, httpPort, httpsPort string) err
 		}
 		cfg := &tls.Config{
 			GetCertificate: m.GetCertificate,
-			NextProtos:     []string{"h2", "http/1.1", "acme-tls/1"},
+			NextProtos:     []string{"h3", "h2", "http/1.1", "acme-tls/1"},
 			ServerName:     "COBOL",
 		}
+
 		go func() {
 			ln, err := tls.Listen("tcp", ":"+httpsPort, cfg)
 			if err != nil {
 				panic(err)
 			}
-			log.Printf("listening on %s", ln.Addr())
-			err = server.Serve(ln)
+
+			err = serverH2.Serve(ln)
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err.Error())
 			}
 		}()
 
+		go func() {
+			udpConn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 443})
+			tr := quic.Transport{
+				Conn: udpConn,
+			}
+			tlsConf := http3.ConfigureTLSConfig(cfg)
+			quicConf := &quic.Config{Allow0RTT: true, EnableDatagrams: true}
+			ln, _ := tr.ListenEarly(tlsConf, quicConf)
+			err = serverH3.ServeListener(ln)
+			if err != nil {
+				log.Println(err.Error())
+			}
+		}()
+
+		// http -> https redirect
 		go func() {
 			_ = http.ListenAndServe(":80", http.HandlerFunc(redirectToHTTPS))
 		}()
@@ -109,11 +164,12 @@ func (app *application) run(ctx context.Context, httpPort, httpsPort string) err
 
 	select {
 	case <-ctx.Done():
-		err := server.Shutdown(ctx)
+		err := serverH2.Shutdown(context.Background())
 		if err != nil {
+			log.Println(err.Error())
 			return err
 		}
 
-		return nil
+		return ctx.Err()
 	}
 }

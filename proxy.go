@@ -48,7 +48,8 @@ func NewProxy(servers []localServer) *Proxy {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	var h internalProxy
+	w.Header().Set("Alt-Svc", "h3=\":443\"; ma=2592000")
+
 	h, ok := p.proxies[r.Host]
 
 	if !ok {
@@ -62,8 +63,4 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.rp.ServeHTTP(w, r)
 
-}
-
-func redirectToHTTPS(w http.ResponseWriter, req *http.Request) {
-	http.Redirect(w, req, "https://"+req.Host+req.URL.String(), http.StatusMovedPermanently)
 }

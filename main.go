@@ -13,6 +13,6 @@ func main() {
 
 	ctx := context.Background()
 	if err := app.run(ctx, "80", "443"); err != nil {
-		log.Println(err.Error())
+		log.Fatal(err.Error())
 	}
 }

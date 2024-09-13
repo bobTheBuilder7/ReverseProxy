@@ -1,5 +1,5 @@
 run:
-	BRANCH=dev go run --race . --url sldent.local::localhost:5173 --url api.sldent.local::example.com
+	BRANCH=dev go run --race . --url localhost::viewer.ohif.org
 build:
 	CGO_ENABLED=0 go build -o ./bin/reverse_mac .
 build_server:

@@ -8,6 +8,8 @@ import (
 	"github.com/CAFxX/httpcompression"
 	"github.com/CAFxX/httpcompression/contrib/andybalholm/brotli"
 	"github.com/CAFxX/httpcompression/contrib/klauspost/gzip"
+	"github.com/CAFxX/httpcompression/contrib/klauspost/zstd"
+	kpzstd "github.com/klauspost/compress/zstd"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/crypto/acme/autocert"
@@ -70,24 +72,30 @@ func (app *application) run(ctx context.Context, httpPort, httpsPort string) err
 		domains = append(domains, domain)
 	}
 
+	zsEnc, err := zstd.New(kpzstd.WithEncoderLevel(kpzstd.SpeedBetterCompression))
+	if err != nil {
+		panic(err)
+	}
+
 	brEnc, err := brotli.New(brotli.Options{
-		Quality: 10,
+		Quality: 4,
 		LGWin:   0,
 	})
 	if err != nil {
 		panic(err)
 	}
 
-	gzEnc, err := gzip.New(gzip.Options{Level: 9})
+	gzEnc, err := gzip.New(gzip.Options{Level: 6})
 	if err != nil {
 		panic(err)
 	}
 
 	compress, err := httpcompression.Adapter(
+		httpcompression.Compressor(zstd.Encoding, 2, zsEnc),
 		httpcompression.Compressor(brotli.Encoding, 1, brEnc),
 		httpcompression.Compressor(gzip.Encoding, 0, gzEnc),
 		httpcompression.Prefer(httpcompression.PreferServer),
-		httpcompression.MinSize(100),
+		httpcompression.MinSize(200),
 		httpcompression.ContentTypes([]string{
 			"image/jpeg",
 			"image/gif",
@@ -161,6 +169,8 @@ func (app *application) run(ctx context.Context, httpPort, httpsPort string) err
 			_ = http.ListenAndServe(":80", http.HandlerFunc(redirectToHTTPS))
 		}()
 	}
+
+	log.Println("Starting servers...")
 
 	select {
 	case <-ctx.Done():

@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 )
 
 type internalProxy struct {
@@ -14,6 +14,7 @@ type internalProxy struct {
 
 type Proxy struct {
 	proxies map[string]internalProxy
+	suren   int
 }
 
 type localServer struct {
@@ -22,20 +23,99 @@ type localServer struct {
 }
 
 func NewProxy(servers []localServer) *Proxy {
-
 	proxies := make(map[string]internalProxy)
 
 	for _, server := range servers {
-		u, err := url.Parse("http://" + server.whereTo)
-		if err != nil {
-			panic(err)
-		}
-
-		rp := httputil.NewSingleHostReverseProxy(u)
-		rp.Director = func(r *http.Request) {
-			r.URL.Scheme = "http"
-			r.URL.Host = server.whereTo
-			r.Host = server.whereTo
+		rp := &httputil.ReverseProxy{
+			Rewrite: func(req *httputil.ProxyRequest) {
+				req.Out.URL.Scheme = "http"
+				req.Out.URL.Host = server.whereTo
+				req.Out.Host = server.whereTo
+			},
+			ModifyResponse: func(resp *http.Response) error {
+				//start := time.Now()
+				//acceptsEncoding := resp.Request.Header.Get("Accept-Encoding")
+				//contentEncoding := resp.Header.Get("Content-Encoding")
+				//
+				//if contentEncoding != "" {
+				//	return nil
+				//}
+				//
+				//b := GetBuffer()
+				//defer PutBuffer(b)
+				//var alg string
+				//if strings.Contains(acceptsEncoding, "zstd") {
+				//	alg = "zstd"
+				//	enc, err := zstd.NewWriter(b, zstd.WithEncoderLevel(zstd.SpeedDefault))
+				//	if err != nil {
+				//		return err
+				//	}
+				//
+				//	_, err = io.Copy(enc, resp.Body)
+				//	if err != nil {
+				//		return err
+				//	}
+				//
+				//	if err = resp.Body.Close(); err != nil {
+				//		return err
+				//	}
+				//
+				//	if err = enc.Close(); err != nil {
+				//		return err
+				//	}
+				//
+				//} else if strings.Contains(acceptsEncoding, "br") {
+				//	alg = "br"
+				//	writer := brotli.NewWriterV2(b, 4)
+				//
+				//	_, err := io.Copy(writer, resp.Body)
+				//	if err != nil {
+				//		return err
+				//	}
+				//
+				//	if err = resp.Body.Close(); err != nil {
+				//		return err
+				//	}
+				//
+				//	if err = writer.Close(); err != nil {
+				//		return err
+				//	}
+				//
+				//} else if strings.Contains(acceptsEncoding, "gzip") {
+				//	alg = "gzip"
+				//	writer, err := gzip.NewWriterLevel(b, 6)
+				//	if err != nil {
+				//		return err
+				//	}
+				//
+				//	_, err = io.Copy(writer, resp.Body)
+				//	if err != nil {
+				//		return err
+				//	}
+				//
+				//	if err = resp.Body.Close(); err != nil {
+				//		return err
+				//	}
+				//
+				//	if err = writer.Close(); err != nil {
+				//		return err
+				//	}
+				//
+				//}
+				//
+				//resp.Header.Set("Content-Encoding", alg)
+				//resp.Header.Set("Content-Length", strconv.Itoa(b.Len()))
+				//resp.ContentLength = int64(b.Len())
+				//resp.Body = io.NopCloser(bytes.NewReader(b.Bytes()))
+				//resp.Header.Set("Time-To-Compress", fmt.Sprintf("%dms", time.Since(start).Milliseconds()))
+				//
+				return nil
+			},
+			ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+				if err != nil {
+					log.Printf("Proxy error: %s", err.Error())
+				}
+			},
 		}
 
 		proxies[server.domain] = internalProxy{
@@ -62,5 +142,4 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.rp.ServeHTTP(w, r)
-
 }

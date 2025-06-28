@@ -48,7 +48,122 @@ func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
-func (app *application) run(ctx context.Context, httpPort, httpsPort string) error {
+//var greaseValues = map[uint16]bool{
+//	0x0a0a: true, 0x1a1a: true,
+//	0x2a2a: true, 0x3a3a: true,
+//	0x4a4a: true, 0x5a5a: true,
+//	0x6a6a: true, 0x7a7a: true,
+//	0x8a8a: true, 0x9a9a: true,
+//	0xaaaa: true, 0xbaba: true,
+//	0xcaca: true, 0xdada: true,
+//	0xeaea: true, 0xfafa: true,
+//}
+//
+//func calculateJA3(hello *tls.ClientHelloInfo) string {
+//	var (
+//		maxPossibleBufferLength = (5+1)*len(hello.CipherSuites) +
+//			(5+1)*len(hello.Extensions) +
+//			(5+1)*len(hello.SupportedCurves) +
+//			(3+1)*len(hello.SupportedPoints)
+//
+//		buffer       = make([]byte, 0, maxPossibleBufferLength)
+//		sepValueByte = byte(45)
+//		sepFieldByte = byte(44)
+//	)
+//
+//	lastElem := len(hello.CipherSuites) - 1
+//	if len(hello.CipherSuites) > 1 {
+//		for _, e := range hello.CipherSuites[:lastElem] {
+//			// filter GREASE values
+//			if !greaseValues[e] {
+//				buffer = strconv.AppendInt(buffer, int64(e), 10)
+//				buffer = append(buffer, sepValueByte)
+//			}
+//		}
+//	}
+//	// append last element if cipher suites are not empty
+//	if lastElem != -1 {
+//		// filter GREASE values
+//		if !greaseValues[hello.CipherSuites[lastElem]] {
+//			buffer = strconv.AppendInt(buffer, int64(hello.CipherSuites[lastElem]), 10)
+//		}
+//	}
+//	buffer = bytes.TrimSuffix(buffer, []byte{sepValueByte})
+//	buffer = append(buffer, sepFieldByte)
+//
+//	/*
+//	 *	Extensions
+//	 */
+//
+//	slices.Sort(hello.Extensions)
+//
+//	// collect extensions
+//	lastElem = len(hello.Extensions) - 1
+//	if len(hello.Extensions) > 1 {
+//		for _, e := range hello.Extensions[:lastElem] {
+//			// filter GREASE values
+//			if !greaseValues[e] && e != 41 {
+//				buffer = strconv.AppendInt(buffer, int64(e), 10)
+//				buffer = append(buffer, sepValueByte)
+//			}
+//		}
+//	}
+//	// append last element if extensions are not empty
+//	if lastElem != -1 {
+//		// filter GREASE values
+//		if !greaseValues[hello.Extensions[lastElem]] {
+//			buffer = strconv.AppendInt(buffer, int64(hello.Extensions[lastElem]), 10)
+//		}
+//	}
+//	buffer = bytes.TrimSuffix(buffer, []byte{sepValueByte})
+//	buffer = append(buffer, sepFieldByte)
+//
+//	/*
+//	 *	Supported Groups
+//	 */
+//
+//	// collect supported groups
+//	lastElem = len(hello.SupportedCurves) - 1
+//	if len(hello.SupportedCurves) > 1 {
+//		for _, e := range hello.SupportedCurves[:lastElem] {
+//			// filter GREASE values
+//			if !greaseValues[uint16(e)] {
+//				buffer = strconv.AppendInt(buffer, int64(e), 10)
+//				buffer = append(buffer, sepValueByte)
+//			}
+//		}
+//	}
+//	// append last element if supported groups are not empty
+//	if lastElem != -1 {
+//		// filter GREASE values
+//		if !greaseValues[uint16(hello.SupportedCurves[lastElem])] {
+//			buffer = strconv.AppendInt(buffer, int64(hello.SupportedCurves[lastElem]), 10)
+//		}
+//	}
+//	buffer = bytes.TrimSuffix(buffer, []byte{sepValueByte})
+//	buffer = append(buffer, sepFieldByte)
+//
+//	/*
+//	 *	Supported Points
+//	 */
+//
+//	// collect supported points
+//	lastElem = len(hello.SupportedPoints) - 1
+//	if len(hello.SupportedPoints) > 1 {
+//		for _, e := range hello.SupportedPoints[:lastElem] {
+//			buffer = strconv.AppendInt(buffer, int64(e), 10)
+//			buffer = append(buffer, sepValueByte)
+//		}
+//	}
+//	// append last element if supported points are not empty
+//	if lastElem != -1 {
+//		buffer = strconv.AppendInt(buffer, int64(hello.SupportedPoints[lastElem]), 10)
+//	}
+//
+//	return hex.EncodeToString(buffer)
+//}
+
+func (app *application) run(ctx context.Context, httpsPort string) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 	defer cancel()
 
@@ -116,7 +231,22 @@ func (app *application) run(ctx context.Context, httpPort, httpsPort string) err
 
 	if app.dev {
 		go func() {
-			ln, err := net.Listen("tcp", ":"+httpPort)
+			cer, err := tls.LoadX509KeyPair("./example.com+6.pem", "./example.com+6-key.pem")
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			cfg := &tls.Config{
+				GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
+					//cache.Set(info.Conn.RemoteAddr().String(), calculateJA3(info))
+					return &cer, nil
+				},
+
+				NextProtos: []string{"h2", "http/1.1", "acme-tls/1"},
+				ServerName: "COBOL",
+			}
+			ln, err := tls.Listen("tcp", ":"+httpsPort, cfg)
 			if err != nil {
 				panic(err)
 			}
@@ -133,9 +263,12 @@ func (app *application) run(ctx context.Context, httpPort, httpsPort string) err
 			Cache:      autocert.DirCache("/.certs"),
 		}
 		cfg := &tls.Config{
-			GetCertificate: m.GetCertificate,
-			NextProtos:     []string{"h3", "h2", "http/1.1", "acme-tls/1"},
-			ServerName:     "COBOL",
+			GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				//cache.Set(info.Conn.RemoteAddr().String(), calculateJA3(info))
+				return m.GetCertificate(info)
+			},
+			NextProtos: []string{"h3", "h2", "http/1.1", "acme-tls/1"},
+			ServerName: "COBOL",
 		}
 
 		go func() {

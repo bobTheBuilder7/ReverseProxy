@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 )
 
 type internalProxy struct {
@@ -31,6 +32,9 @@ func NewProxy(servers []localServer) *Proxy {
 				req.Out.URL.Scheme = "http"
 				req.Out.URL.Host = server.whereTo
 				req.Out.Host = server.whereTo
+
+				// this is important to get real ip from SLdent
+				req.SetXForwarded()
 			},
 			ModifyResponse: func(resp *http.Response) error {
 				//start := time.Now()
@@ -129,6 +133,10 @@ func NewProxy(servers []localServer) *Proxy {
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Alt-Svc", "h3=\":443\"; ma=2592000")
+
+	if strings.HasPrefix(r.URL.Path, "/_app/immutable/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
 
 	h, ok := p.proxies[r.Host]
 

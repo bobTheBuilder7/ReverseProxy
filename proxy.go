@@ -37,82 +37,9 @@ func NewProxy(servers []localServer) *Proxy {
 				req.SetXForwarded()
 			},
 			ModifyResponse: func(resp *http.Response) error {
-				//start := time.Now()
-				//acceptsEncoding := resp.Request.Header.Get("Accept-Encoding")
-				//contentEncoding := resp.Header.Get("Content-Encoding")
-				//
-				//if contentEncoding != "" {
-				//	return nil
-				//}
-				//
-				//b := GetBuffer()
-				//defer PutBuffer(b)
-				//var alg string
-				//if strings.Contains(acceptsEncoding, "zstd") {
-				//	alg = "zstd"
-				//	enc, err := zstd.NewWriter(b, zstd.WithEncoderLevel(zstd.SpeedDefault))
-				//	if err != nil {
-				//		return err
-				//	}
-				//
-				//	_, err = io.Copy(enc, resp.Body)
-				//	if err != nil {
-				//		return err
-				//	}
-				//
-				//	if err = resp.Body.Close(); err != nil {
-				//		return err
-				//	}
-				//
-				//	if err = enc.Close(); err != nil {
-				//		return err
-				//	}
-				//
-				//} else if strings.Contains(acceptsEncoding, "br") {
-				//	alg = "br"
-				//	writer := brotli.NewWriterV2(b, 4)
-				//
-				//	_, err := io.Copy(writer, resp.Body)
-				//	if err != nil {
-				//		return err
-				//	}
-				//
-				//	if err = resp.Body.Close(); err != nil {
-				//		return err
-				//	}
-				//
-				//	if err = writer.Close(); err != nil {
-				//		return err
-				//	}
-				//
-				//} else if strings.Contains(acceptsEncoding, "gzip") {
-				//	alg = "gzip"
-				//	writer, err := gzip.NewWriterLevel(b, 6)
-				//	if err != nil {
-				//		return err
-				//	}
-				//
-				//	_, err = io.Copy(writer, resp.Body)
-				//	if err != nil {
-				//		return err
-				//	}
-				//
-				//	if err = resp.Body.Close(); err != nil {
-				//		return err
-				//	}
-				//
-				//	if err = writer.Close(); err != nil {
-				//		return err
-				//	}
-				//
-				//}
-				//
-				//resp.Header.Set("Content-Encoding", alg)
-				//resp.Header.Set("Content-Length", strconv.Itoa(b.Len()))
-				//resp.ContentLength = int64(b.Len())
-				//resp.Body = io.NopCloser(bytes.NewReader(b.Bytes()))
-				//resp.Header.Set("Time-To-Compress", fmt.Sprintf("%dms", time.Since(start).Milliseconds()))
-				//
+				if strings.HasPrefix(resp.Request.URL.Path, "/_app/immutable/") {
+					resp.Header["Cache-Control"] = []string{"public, max-age=31536000, immutable"}
+				}
 				return nil
 			},
 			ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
@@ -133,10 +60,6 @@ func NewProxy(servers []localServer) *Proxy {
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Alt-Svc", "h3=\":443\"; ma=2592000")
-
-	if strings.HasPrefix(r.URL.Path, "/_app/immutable/") {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	}
 
 	h, ok := p.proxies[r.Host]
 
